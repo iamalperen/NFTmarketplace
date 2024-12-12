@@ -6,6 +6,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import {signIn} from "next-auth/react";
 
 const Login = () => {
   const [username, setUsername] = useState("");
@@ -16,17 +17,19 @@ const Login = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await axios.post("http://localhost:4000/api/login", {
+      const result = await signIn("credentials", {
+        redirect: false,
         username,
         password,
       });
-      if (response.status === 200) {
-        const { token, user } = response.data;
-        localStorage.setItem("token", token);
+
+      if (!result?.ok) {
+        setError("Invalid username or password");
+      } else {
         router.push("/dashboard");
       }
     } catch (err) {
-      setError("Login failed. Please try again.");
+      setError("An unexpected error occurred. Please try again.");
     }
   };
 

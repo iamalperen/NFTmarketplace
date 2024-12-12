@@ -8,6 +8,7 @@ import Image from "next/image";
 import { Sun, Moon } from "lucide-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import dynamic from "next/dynamic";
+import {useSession} from "next-auth/react";
 
 // Dynamically load WalletMultiButton to ensure it is only rendered on the client side
 const DynamicWalletMultiButton = dynamic(
@@ -20,25 +21,9 @@ const DynamicWalletMultiButton = dynamic(
 
 const NavBar = () => {
   const { theme, toggleTheme } = useTheme();
-  const [username, setUsername] = useState<string | null>(null);
+  const { data: session, status } = useSession();
 
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      axios
-        .get("http://localhost:4000/api/userinfo", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        })
-        .then((response) => {
-          setUsername(response.data.username);
-        })
-        .catch(() => {
-          setUsername(null);
-        });
-    }
-  }, []);
+  const isUserLoggedIn = status && status === 'authenticated'
 
   const handleToggleTheme = () => {
     toggleTheme(theme === "light" ? "dark" : "light");
@@ -58,9 +43,13 @@ const NavBar = () => {
           <div className="text-white text-xl font-bold">Defy</div>
         </Link>
         <div className="space-x-4 flex items-center">
-          <Link href="/dashboard" className="text-white hidden sm:inline">
-            Profile
-          </Link>
+          {
+              isUserLoggedIn && (
+                <Link href="/dashboard" className="text-white hidden sm:inline">
+                Profile
+              </Link>
+              )
+          }
           <Link href="/studio" className="text-white hidden sm:inline">
             Studio
           </Link>
@@ -92,6 +81,9 @@ const NavBar = () => {
         </Link>
         <Link href="/studio" className="text-white">
           Studio
+        </Link>
+        <Link href="/discover" className="text-white">
+          Discover
         </Link>
         <Link href="/discover" className="text-white">
           Discover
