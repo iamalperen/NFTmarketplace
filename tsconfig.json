@@ -19,6 +19,9 @@
       }
     ],
     "paths": {
+      "@server/*": ["server/*"],
+      "@models/*": ["server/models/*"],
+      "@lib/*": ["src/lib/*"],
       "@/*": ["./src/*"]
     }
   },

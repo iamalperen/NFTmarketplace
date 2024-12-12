@@ -10,6 +10,7 @@ import {
 } from '@solana/wallet-adapter-wallets';
 import '@solana/wallet-adapter-react-ui/styles.css';
 import { useMemo } from 'react';
+import {SessionProvider} from "next-auth/react";
 
 const Providers = ({ children }: { children: React.ReactNode }) => {
   const network = WalletAdapterNetwork.Devnet;
@@ -24,13 +25,15 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
   );
 
   return (
-    <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>
-          {children}
-        </WalletModalProvider>
-      </WalletProvider>
-    </ConnectionProvider>
+      <SessionProvider>
+        <ConnectionProvider endpoint={endpoint}>
+          <WalletProvider wallets={wallets} autoConnect>
+            <WalletModalProvider>
+              {children}
+            </WalletModalProvider>
+          </WalletProvider>
+        </ConnectionProvider>
+      </SessionProvider>
   );
 };
 

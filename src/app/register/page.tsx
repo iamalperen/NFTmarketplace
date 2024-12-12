@@ -3,8 +3,10 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { useRouter } from 'next/navigation';
+import {signIn} from "next-auth/react";
 
 const Register = () => {
+  const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState(''); // New state for email
@@ -14,20 +16,35 @@ const Register = () => {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
+
     try {
-      const response = await axios.post('http://localhost:4000/api/register', {
+      const response = await axios.post('/api/register', {
+        name,
         username,
         password,
-        email, // Include email
-        solanaWallet, // Include Solana wallet address
+        email,
+        solanaWallet,
       });
+
       if (response.status === 201) {
-        router.push('/login');
+        const { email, password } = response.data.user;
+        const result = await signIn("credentials", {
+          redirect: false,
+          username,
+          password,
+        });
+        if (!result?.ok) {
+          setError("User created but login failed. Please try again.");
+        } else {
+          router.push("/dashboard");
+        }
       }
-    } catch (err) {
-      setError('Registration failed. Please try again.');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Registration failed. Please try again.');
     }
   };
+
 
   return (
     <div className="min-h-screen flex items-center justify-center">
@@ -35,6 +52,19 @@ const Register = () => {
         <h2 className="text-2xl font-bold mb-6 text-black dark:text-white">Register</h2>
         {error && <p className="text-red-500 dark:text-red-400 mb-4">{error}</p>}
         <form onSubmit={handleRegister}>
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2 text-black dark:text-white" htmlFor="name">
+              Name
+            </label>
+            <input
+              type="text"
+              id="name"
+              className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded bg-gray-50 dark:bg-white text-black dark:text-black"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </div>
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2 text-black dark:text-white" htmlFor="username">
               Username
