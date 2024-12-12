@@ -1,13 +1,6 @@
-// src/app/discover/closet/page.tsx
-
 "use client";
 
-import React, { useEffect, useState } from "react";
-import {
-  getAssetsByOwner,
-  fetchNFTDetails,
-  extractGroupAddress,
-} from "@/utils/getAssets";
+import React, { useEffect, useState, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { FaExternalLinkAlt } from "react-icons/fa";
@@ -21,6 +14,7 @@ import Skeleton from "@/components/Skeleton";
 import { getNFTDetail, getNFTList } from "@/utils/nftMarket";
 import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
+import {trimAddress} from "@/utils/trimAddress";
 
 export interface NFTDetail {
   name: string;
@@ -33,17 +27,45 @@ export interface NFTDetail {
   listing: string;
 }
 
-const trimAddress = (address: string) =>
-  `${address.slice(0, 4)}...${address.slice(-4)}`;
-
 const Closet: React.FC = () => {
   const { publicKey } = useWallet();
   const [walletAddress, setWalletAddress] = useState<string>("");
   const [assets, setAssets] = useState<NFTDetail[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [filtersLoading, setFiltersLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [selectedGroup, setSelectedGroup] = useState<string>("all");
+  const [maxAvailablePrice, setMaxAvailablePrice] = useState<number>(0);
+  const [selectedMaxPrice, setSelectedMaxPrice] = useState<number>(0);
+
   const wallet = useAnchorWallet();
   const { connection } = useConnection();
+
+  const groups = useMemo(() => {
+    const groupSet = new Set<string>();
+    assets.forEach((asset) => {
+      if (asset.group && asset.group.trim().length > 0) {
+        groupSet.add(asset.group);
+      }
+    });
+    return Array.from(groupSet);
+  }, [assets]);
+
+  const filteredAssets = useMemo(() => {
+    return assets.filter((asset) => {
+      const inPriceRange = asset.price <= selectedMaxPrice;
+      const matchesSearch =
+          searchTerm.trim().length === 0 ||
+          asset.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          asset.symbol.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesGroup =
+          selectedGroup === "all" || asset.group === selectedGroup;
+
+      return inPriceRange && matchesSearch && matchesGroup;
+    });
+  }, [assets, selectedMaxPrice, searchTerm, selectedGroup]);
 
   useEffect(() => {
     const storedWalletAddress = sessionStorage.getItem("walletAddress");
@@ -59,10 +81,6 @@ const Closet: React.FC = () => {
     fetchNFTs();
   }, []);
 
-  // useEffect(() => {
-  //   fetchAssets();
-  // }, [publicKey]);
-
   useEffect(() => {
     fetchNFTs();
   }, [wallet]);
@@ -73,111 +91,179 @@ const Closet: React.FC = () => {
 
   useEffect(() => {
     sessionStorage.setItem("assets", JSON.stringify(assets));
+    if (assets.length > 0) {
+      const prices = assets.map((a) => +a.price);
+      const maxPrice = Math.max(...prices);
+      setMaxAvailablePrice(maxPrice);
+      setSelectedMaxPrice(maxPrice);
+      setFiltersLoading(false);
+    }
   }, [assets]);
 
   const fetchNFTs = async () => {
     setIsLoading(true);
+    setFiltersLoading(true);
     const provider = new AnchorProvider(connection, wallet as Wallet, {});
 
     try {
       const listings = await getNFTList(provider, connection);
-      // const mint = new PublicKey(listings[0].mint);
-      // const detail = await getNFTDetail(mint, connection);
-      console.log(listings);
       const promises = listings
-        .filter((list) => list.isActive)
-        .map((list) => {
-          const mint = new PublicKey(list.mint);
-          return getNFTDetail(
-            mint,
-            connection,
-            list.seller,
-            list.price,
-            list.pubkey
-          );
-        });
+          .filter((list) => list.isActive)
+          .map((list) => {
+            const mint = new PublicKey(list.mint);
+            return getNFTDetail(mint, connection, list.seller, list.price, list.pubkey);
+          });
       const detailedListings = await Promise.all(promises);
-      console.log(detailedListings);
-      //return detailedListings;
-
       setAssets(detailedListings);
-    } catch (errr) {
-      console.log(errr);
+    } catch (error) {
+      console.log(error);
+      setError("Error fetching NFTs.");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="p-4 pt-20 bg-white dark:bg-black min-h-screen">
-      <h1 className="text-3xl font-bold mb-4 text-center text-black dark:text-white">
-        NFTs on sale
-      </h1>
+      <div className="p-4 pt-20 bg-white dark:bg-black min-h-screen">
+        <h1 className="text-3xl font-bold mb-4 text-center text-black dark:text-white">
+          NFTs on sale
+        </h1>
 
-      {error && <div className="text-red-500 text-center mb-4">{error}</div>}
+        {error && <div className="text-red-500 text-center mb-4">{error}</div>}
 
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {Array.from({ length: 8 }).map((_, index) => (
-            <Card key={index}>
-              <Skeleton className="h-64 w-full mb-4" />
-              <Skeleton className="h-6 w-3/4 mb-2" />
-              <Skeleton className="h-4 w-1/2" />
-            </Card>
-          ))}
-        </div>
-      ) : assets.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {assets.map((asset: NFTDetail) => (
-            <div
-              key={asset.mint}
-              className="relative p-4 border rounded shadow hover:shadow-lg transition-transform transform hover:scale-105 cursor-pointer bg-white dark:bg-black group"
-            >
-              <Link href={`/marketplace/${asset.mint}`}>
-                <div className="relative h-64 w-full mb-4">
-                  {asset.image ? (
-                    <Image
-                      src={asset.image}
-                      alt={`Asset ${asset.mint}`}
-                      layout="fill"
-                      objectFit="contain"
-                      className="rounded"
-                    />
-                  ) : (
-                    <p>No Image Available</p>
-                  )}
-                </div>
-              </Link>
-              <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-0 group-hover:bg-opacity-70 transition-opacity flex flex-col justify-end items-center opacity-0 group-hover:opacity-100 text-white text-xs p-2">
-                <p className="font-semibold">{asset.name || "Unknown"}</p>
-                <Link
-                  href={`https://solana.fm/address/${asset.mint}`}
-                  target="_blank"
-                  className="hover:text-gray-300 flex items-center"
-                >
-                  {trimAddress(asset.mint)}{" "}
-                  <FaExternalLinkAlt className="ml-1" />
-                </Link>
-                {asset.group && (
-                  <Link
-                    href={`https://solana.fm/address/${asset.group}`}
-                    target="_blank"
-                    className="hover:text-gray-300 flex items-center"
-                  >
-                    Group: {trimAddress(asset.group)}{" "}
-                    <FaExternalLinkAlt className="ml-1" />
-                  </Link>
-                )}
-              </div>
+        {filtersLoading ? (
+            <div className="flex justify-center items-center h-24">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
             </div>
-          ))}
-        </div>
-      ) : (
-        <h2 className="text-2xl font-bold mb-4 text-center text-red-500 dark:text-yellow">
-          No NFTs on sale
-        </h2>
-      )}
-    </div>
+        ) : (
+            <div className="mb-8 bg-gray-100 dark:bg-gray-800 p-6 rounded shadow grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="flex flex-col p-4 bg-white dark:bg-gray-900 shadow-md rounded-lg">
+                <label className="text-sm text-gray-700 dark:text-gray-300 mb-2 font-semibold">
+                  Search by Name or Symbol
+                </label>
+                <input
+                    type="text"
+                    placeholder="e.g. Dress, LD04..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="p-2 border border-gray-300 dark:border-gray-700 rounded focus:outline-none"
+                />
+              </div>
+
+              {groups.length > 0 && (
+                  <div className="flex flex-col p-4 bg-white dark:bg-gray-900 shadow-md rounded-lg">
+                    <label className="text-sm text-gray-700 dark:text-gray-300 mb-2 font-semibold">
+                      Filter by Group
+                    </label>
+                    <select
+                        value={selectedGroup}
+                        onChange={(e) => setSelectedGroup(e.target.value)}
+                        className="p-2 border border-gray-300 dark:border-gray-700 rounded focus:outline-none"
+                    >
+                      <option value="all">All Groups</option>
+                      {groups.map((grp, idx) => (
+                          <option key={idx} value={grp}>
+                            {grp}
+                          </option>
+                      ))}
+                    </select>
+                  </div>
+              )}
+
+              {maxAvailablePrice > 0 && (
+                  <div className="flex flex-col p-4 bg-white dark:bg-gray-900 shadow-md rounded-lg">
+                    <label className="text-sm text-gray-700 dark:text-gray-300 mb-2 font-semibold">
+                      Price Filter
+                    </label>
+                    <input
+                        type="range"
+                        min="0"
+                        max={maxAvailablePrice}
+                        step="0.1"
+                        value={selectedMaxPrice}
+                        onChange={(event) => setSelectedMaxPrice(Number(event.target.value))}
+                        className="w-full h-2 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 rounded appearance-none"
+                    />
+                    <div className="text-sm text-gray-500 mt-2">
+                      Max: {selectedMaxPrice.toFixed(2)}
+                    </div>
+                  </div>
+              )}
+            </div>
+        )}
+
+        {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {Array.from({ length: 8 }).map((_, index) => (
+                  <Card key={index}>
+                    <Skeleton className="h-64 w-full mb-4" />
+                    <Skeleton className="h-6 w-3/4 mb-2" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </Card>
+              ))}
+            </div>
+        ) : filteredAssets.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filteredAssets.map((asset: NFTDetail) => (
+                  <div
+                      key={asset.mint}
+                      className="relative p-4 border rounded shadow hover:shadow-lg transition-transform transform hover:scale-105 cursor-pointer bg-white dark:bg-black group"
+                  >
+                    <Link href={`/marketplace/${asset.mint}`}>
+                      <div className="relative h-64 w-full mb-4">
+                        {asset.image ? (
+                            <Image
+                                src={asset.image}
+                                alt={`Asset ${asset.mint}`}
+                                layout="fill"
+                                objectFit="contain"
+                                className="rounded"
+                            />
+                        ) : (
+                            <p>No Image Available</p>
+                        )}
+                      </div>
+                    </Link>
+                    {
+                      asset.name ? (
+                          <div
+                          className="absolute bottom-2 left-2 text-sm font-semibold text-black dark:text-white transition-opacity group-hover:opacity-0"
+                      >
+                        {asset.name}
+                      </div>
+                      ) : null
+                    }
+                    <div
+                        className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-0 group-hover:bg-opacity-70 transition-opacity flex flex-col justify-end items-center opacity-0 group-hover:opacity-100 text-white text-xs p-2">
+                      <p className="font-semibold">{asset.name || "Unknown"}</p>
+                      <Link
+                          href={`https://solana.fm/address/${asset.mint}`}
+                          target="_blank"
+                          className="hover:text-gray-300 flex items-center"
+                      >
+                        {trimAddress(asset.mint)}
+                        <FaExternalLinkAlt className="ml-1"/>
+                      </Link>
+                      {asset.group && (
+                          <Link
+                              href={`https://solana.fm/address/${asset.group}`}
+                              target="_blank"
+                              className="hover:text-gray-300 flex items-center"
+                          >
+                            Group: {trimAddress(asset.group)}
+                            <FaExternalLinkAlt className="ml-1"/>
+                          </Link>
+                      )}
+                    </div>
+                  </div>
+              ))}
+            </div>
+        ) : (
+            <h2 className="text-2xl font-bold mb-4 text-center text-red-500 dark:text-yellow">
+              No NFTs on sale
+            </h2>
+        )}
+      </div>
   );
 };
 
