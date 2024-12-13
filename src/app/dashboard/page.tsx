@@ -35,7 +35,7 @@ const Dashboard = () => {
                 fetchUserInfo();
             }
         }
-    }, [router, user, status]);
+    }, [router, user, status, fetchUserInfo]);
 
     const fetchUserInfo = async () => {
         setLoading(true);
