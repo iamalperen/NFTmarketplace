@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useReducer } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { FaExternalLinkAlt } from "react-icons/fa";
@@ -14,7 +14,9 @@ import Skeleton from "@/components/Skeleton";
 import { getNFTDetail, getNFTList } from "@/utils/nftMarket";
 import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
-import {trimAddress} from "@/utils/trimAddress";
+import { trimAddress } from "@/utils/trimAddress";
+
+const ALL_GROUPS = "all";
 
 export interface NFTDetail {
   name: string;
@@ -27,21 +29,44 @@ export interface NFTDetail {
   listing: string;
 }
 
+const initialState = {
+  assets: [],
+  isLoading: false,
+  filtersLoading: true,
+  error: null,
+};
+
+function reducer(state, action) {
+  switch (action.type) {
+    case "FETCH_START":
+      return { ...state, isLoading: true, filtersLoading: true };
+    case "FETCH_SUCCESS":
+      return { ...state, assets: action.payload, isLoading: false, filtersLoading: false };
+    case "FETCH_ERROR":
+      return { ...state, error: action.payload, isLoading: false, filtersLoading: false };
+    default:
+      return state;
+  }
+}
+
 const Closet: React.FC = () => {
   const { publicKey } = useWallet();
-  const [walletAddress, setWalletAddress] = useState<string>("");
-  const [assets, setAssets] = useState<NFTDetail[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [filtersLoading, setFiltersLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [searchTerm, setSearchTerm] = useState<string>("");
-  const [selectedGroup, setSelectedGroup] = useState<string>("all");
-  const [maxAvailablePrice, setMaxAvailablePrice] = useState<number>(0);
-  const [selectedMaxPrice, setSelectedMaxPrice] = useState<number>(0);
-
   const wallet = useAnchorWallet();
   const { connection } = useConnection();
+
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [selectedGroup, setSelectedGroup] = useState<string>(ALL_GROUPS);
+  const [maxAvailablePrice, setMaxAvailablePrice] = useState<number>(0);
+  const [selectedMaxPrice, setSelectedMaxPrice] = useState<number>(0);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState<string>("");
+
+  const { assets, isLoading, filtersLoading, error } = state;
+
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedSearchTerm(searchTerm), 300);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
 
   const groups = useMemo(() => {
     const groupSet = new Set<string>();
@@ -55,39 +80,31 @@ const Closet: React.FC = () => {
 
   const filteredAssets = useMemo(() => {
     return assets.filter((asset) => {
-      const inPriceRange = asset.price <= selectedMaxPrice;
+      const inPriceRange = +asset.price <= selectedMaxPrice;
       const matchesSearch =
-          searchTerm.trim().length === 0 ||
-          asset.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          asset.symbol.toLowerCase().includes(searchTerm.toLowerCase());
+          debouncedSearchTerm.trim().length === 0 ||
+          asset.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+          asset.symbol.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
       const matchesGroup =
-          selectedGroup === "all" || asset.group === selectedGroup;
+          selectedGroup === ALL_GROUPS || asset.group === selectedGroup;
 
       return inPriceRange && matchesSearch && matchesGroup;
     });
-  }, [assets, selectedMaxPrice, searchTerm, selectedGroup]);
+  }, [assets, selectedMaxPrice, debouncedSearchTerm, selectedGroup]);
 
   useEffect(() => {
     const storedWalletAddress = sessionStorage.getItem("walletAddress");
     const storedAssets = sessionStorage.getItem("assets");
 
     if (storedWalletAddress) {
-      setWalletAddress(storedWalletAddress);
+      sessionStorage.setItem("walletAddress", storedWalletAddress);
     }
 
     if (storedAssets) {
-      setAssets(JSON.parse(storedAssets));
+      dispatch({ type: "FETCH_SUCCESS", payload: JSON.parse(storedAssets) });
     }
     fetchNFTs();
-  }, []);
-
-  useEffect(() => {
-    fetchNFTs();
   }, [wallet]);
-
-  useEffect(() => {
-    sessionStorage.setItem("walletAddress", walletAddress);
-  }, [walletAddress]);
 
   useEffect(() => {
     sessionStorage.setItem("assets", JSON.stringify(assets));
@@ -96,13 +113,11 @@ const Closet: React.FC = () => {
       const maxPrice = Math.max(...prices);
       setMaxAvailablePrice(maxPrice);
       setSelectedMaxPrice(maxPrice);
-      setFiltersLoading(false);
     }
   }, [assets]);
 
   const fetchNFTs = async () => {
-    setIsLoading(true);
-    setFiltersLoading(true);
+    dispatch({ type: "FETCH_START" });
     const provider = new AnchorProvider(connection, wallet as Wallet, {});
 
     try {
@@ -114,12 +129,10 @@ const Closet: React.FC = () => {
             return getNFTDetail(mint, connection, list.seller, list.price, list.pubkey);
           });
       const detailedListings = await Promise.all(promises);
-      setAssets(detailedListings);
+      dispatch({ type: "FETCH_SUCCESS", payload: detailedListings });
     } catch (error) {
-      console.log(error);
-      setError("Error fetching NFTs.");
-    } finally {
-      setIsLoading(false);
+      console.error(error);
+      dispatch({ type: "FETCH_ERROR", payload: "Error fetching NFTs." });
     }
   };
 
@@ -160,7 +173,7 @@ const Closet: React.FC = () => {
                         onChange={(e) => setSelectedGroup(e.target.value)}
                         className="p-2 border border-gray-300 dark:border-gray-700 rounded focus:outline-none"
                     >
-                      <option value="all">All Groups</option>
+                      <option value={ALL_GROUPS}>All Groups</option>
                       {groups.map((grp, idx) => (
                           <option key={idx} value={grp}>
                             {grp}
@@ -224,17 +237,14 @@ const Closet: React.FC = () => {
                         )}
                       </div>
                     </Link>
-                    {
-                      asset.name ? (
-                          <div
-                          className="absolute bottom-2 left-2 text-sm font-semibold text-black dark:text-white transition-opacity group-hover:opacity-0"
-                      >
-                        {asset.name}
-                      </div>
-                      ) : null
-                    }
+                    {asset.name && (
+                        <div className="absolute bottom-2 left-2 text-sm font-semibold text-black dark:text-white transition-opacity group-hover:opacity-0">
+                          {asset.name}
+                        </div>
+                    )}
                     <div
-                        className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-0 group-hover:bg-opacity-70 transition-opacity flex flex-col justify-end items-center opacity-0 group-hover:opacity-100 text-white text-xs p-2">
+                        className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-0 group-hover:bg-opacity-70 transition-opacity flex flex-col justify-end items-center opacity-0 group-hover:opacity-100 text-white text-xs p-2"
+                    >
                       <p className="font-semibold">{asset.name || "Unknown"}</p>
                       <Link
                           href={`https://solana.fm/address/${asset.mint}`}
@@ -242,7 +252,7 @@ const Closet: React.FC = () => {
                           className="hover:text-gray-300 flex items-center"
                       >
                         {trimAddress(asset.mint)}
-                        <FaExternalLinkAlt className="ml-1"/>
+                        <FaExternalLinkAlt className="ml-1" />
                       </Link>
                       {asset.group && (
                           <Link
@@ -251,7 +261,7 @@ const Closet: React.FC = () => {
                               className="hover:text-gray-300 flex items-center"
                           >
                             Group: {trimAddress(asset.group)}
-                            <FaExternalLinkAlt className="ml-1"/>
+                            <FaExternalLinkAlt className="ml-1" />
                           </Link>
                       )}
                     </div>
